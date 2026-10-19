@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matematik ve Taktiği Gönder</title>
+<style>
+:root {
+  --paper: #f7f8f3; --grid: #dfe6d8; --ink: #1d2b4f; --muted: #5d6784;
+  --card: #ffffff; --line: #c9d0e0; --ok: #1f7a4d; --bad: #b3341f; --accent: #2748b8;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161f; --grid: #1c2230; --ink: #e6eaf5; --muted: #98a2bd;
+    --card: #1a2030; --line: #343d57; --ok: #5fd39a; --bad: #ff8a73; --accent: #8fa8ff;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  color: var(--ink); background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  display: flex; justify-content: center; align-items: center; padding: 20px;
+}
+.card {
+  background: var(--card); border: 2px solid var(--ink); border-radius: 6px;
+  box-shadow: 6px 6px 0 var(--ink); width: 100%; max-width: 400px; padding: 24px;
+}
+.top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
+h1 { font-size: 18px; margin: 0; }
+.stats { font-size: 14px; color: var(--muted); text-align: right; }
+.stats b { color: var(--ink); }
+.levels { display: flex; gap: 6px; margin-bottom: 18px; }
+.levels button {
+  flex: 1; padding: 7px; font: inherit; font-size: 14px; background: transparent; color: var(--ink);
+  border: 1.5px solid var(--line); border-radius: 4px; cursor: pointer;
+}
+.levels button[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.question { font-size: 40px; font-weight: bold; text-align: center; margin: 10px 0 16px; letter-spacing: 1px; }
+input, textarea {
+  width: 100%; padding: 10px; margin-bottom: 10px; font: inherit; font-size: 17px;
+  background: var(--card); color: var(--ink); border: 1.5px solid var(--line); border-radius: 4px;
+}
+textarea { resize: vertical; min-height: 84px; }
+button.main {
+  width: 100%; padding: 11px; font: inherit; font-size: 16px; font-weight: bold; cursor: pointer;
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+}
+button.alt {
+  width: 100%; padding: 9px; margin-top: 8px; font: inherit; font-size: 15px; cursor: pointer;
+  background: transparent; color: var(--ink); border: 1.5px solid var(--ink); border-radius: 4px;
+}
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+#result { min-height: 26px; font-size: 18px; font-weight: bold; margin: 10px 0 4px; text-align: center; }
+.correct { color: var(--ok); } .incorrect { color: var(--bad); }
+#tacticSection { display: none; margin-top: 10px; }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0 0; text-align: center; }
+.row { display: flex; gap: 8px; }
+.row .alt { margin-top: 8px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="top">
+    <h1>Matematik sorusu</h1>
+    <div class="stats">Skor: <b id="score">0</b> · Seri: <b id="streak">0</b></div>
+  </div>
+
+  <div class="levels" role="group" aria-label="Zorluk">
+    <button data-level="1" aria-pressed="true">Kolay</button>
+    <button data-level="2" aria-pressed="false">Orta</button>
+    <button data-level="3" aria-pressed="false">Zor</button>
+  </div>
+
+  <div class="question" id="questionText" aria-live="polite"></div>
+
+  <input type="number" id="userAnswer" inputmode="numeric" placeholder="Cevabınız" autocomplete="off">
+  <button class="main" id="checkBtn">Cevabı kontrol et</button>
+  <div id="result" role="status"></div>
+
+  <div id="tacticSection">
+    <textarea id="userTactic" placeholder="Bu işlemi nasıl çözdünüz? Taktiğinizi yazın..."></textarea>
+    <button class="main" id="gmailBtn">Gmail taslağı oluştur</button>
+    <div class="row">
+      <button class="alt" id="mailtoBtn">Mail uygulamasında aç</button>
+      <button class="alt" id="copyBtn">Metni kopyala</button>
+    </div>
+    <p class="note" id="note"></p>
+  </div>
+
+  <button class="alt" id="nextBtn">Yeni soru</button>
+</main>
+
+<script>
+const EMAIL = "denizkulanizmir@gmail.com";
+let level = 1, score = 0, streak = 0, solved = false;
+let q = { a: 0, b: 0, op: "+", answer: 0 };
+let lastKey = "";
+
+const $ = id => document.getElementById(id);
+const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+function generateQuestion() {
+  const max = { 1: 10, 2: 20, 3: 50 }[level];
+  const ops = level === 1 ? ["+", "-", "×"] : ["+", "-", "×", "÷"];
+  let a, b, op, answer, key;
+  do {
+    op = ops[rand(0, ops.length - 1)];
+    if (op === "+") { a = rand(1, max); b = rand(1, max); answer = a + b; }
+    else if (op === "-") { a = rand(1, max); b = rand(1, max); if (a < b) [a, b] = [b, a]; answer = a - b; }
+    else if (op === "×") { const m = level === 3 ? 15 : 10; a = rand(2, m); b = rand(2, m); answer = a * b; }
+    else { b = rand(2, level === 3 ? 12 : 9); answer = rand(2, level === 3 ? 12 : 9); a = b * answer; }
+    key = a + op + b;
+  } while (key === lastKey);
+  lastKey = key;
+  q = { a, b, op, answer };
+  solved = false;
+  $("questionText").textContent = `${a} ${op} ${b} = ?`;
+  $("userAnswer").value = "";
+  $("userTactic").value = "";
+  $("result").textContent = "";
+  $("result").className = "";
+  $("note").textContent = "";
+  $("tacticSection").style.display = "none";
+  $("checkBtn").disabled = false;
+  $("userAnswer").focus();
+}
+
+function checkAnswer() {
+  if (solved) return;
+  const raw = $("userAnswer").value.trim();
+  const res = $("result");
+  if (raw === "") { res.textContent = "Önce bir cevap yazın."; res.className = "incorrect"; return; }
+  if (Number(raw) === q.answer) {
+    solved = true; score++; streak++;
+    res.textContent = streak > 2 ? `Doğru! ${streak} soruluk seri 🔥` : "Doğru!";
+    res.className = "correct";
+    $("tacticSection").style.display = "block";
+    $("checkBtn").disabled = true;
+    $("userTactic").focus();
+  } else {
+    streak = 0;
+    res.textContent = "Yanlış, tekrar dene.";
+    res.className = "incorrect";
+    $("userAnswer").select();
+  }
+  $("score").textContent = score;
+  $("streak").textContent = streak;
+}
+
+function buildMessage() {
+  const tactic = $("userTactic").value.trim() || "Taktik yazılmadı.";
+  const subject = "Matematik Taktiği - Doğru Cevap!";
+  const body = `Merhaba, bu uygulamada ${q.a} ${q.op} ${q.b} işlemini ${q.answer} olarak doğru çözdüm ve taktiğimi gönderiyorum.\n\nTaktiğim: ${tactic}`;
+  return { subject, body };
+}
+
+function openGmail() {
+  const { subject, body } = buildMessage();
+  const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(EMAIL)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const w = window.open(url, "_blank", "noopener");
+  $("note").textContent = w ? "" : "Tarayıcı pencereyi engelledi. 'Mail uygulamasında aç' ya da 'Metni kopyala' seçeneğini deneyin.";
+}
+
+function openMailto() {
+  const { subject, body } = buildMessage();
+  window.location.href = `mailto:${EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+async function copyText() {
+  const { subject, body } = buildMessage();
+  const text = `Kime: ${EMAIL}\nKonu: ${subject}\n\n${body}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("note").textContent = "Kopyalandı.";
+  } catch (e) {
+    $("userTactic").select();
+    $("note").textContent = "Kopyalanamadı. Metni elle seçip kopyalayabilirsiniz.";
+  }
+}
+
+$("checkBtn").addEventListener("click", checkAnswer);
+$("gmailBtn").addEventListener("click", openGmail);
+$("mailtoBtn").addEventListener("click", openMailto);
+$("copyBtn").addEventListener("click", copyText);
+$("nextBtn").addEventListener("click", generateQuestion);
+$("userAnswer").addEventListener("keydown", e => { if (e.key === "Enter") checkAnswer(); });
+document.querySelectorAll(".levels button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    level = Number(btn.dataset.level);
+    document.querySelectorAll(".levels button").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
+    generateQuestion();
+  });
+});
+
+generateQuestion();
+</script>
+</body>
+</html>
